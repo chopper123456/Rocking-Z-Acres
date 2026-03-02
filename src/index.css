@@ -1,0 +1,61 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Core palette — deep soil / grain / sky */
+  --bg:           #0f0e0c;
+  --bg-raised:    #171410;
+  --bg-card:      #1e1a15;
+  --bg-hover:     #252018;
+  --border:       #2e2820;
+  --border-light: #3d3428;
+
+  /* Text */
+  --text:         #f2ead8;
+  --text-muted:   #7a6f5c;
+  --text-dim:     #4a4236;
+
+  /* Accent — harvest gold */
+  --gold:         #d4a843;
+  --gold-light:   #f0c866;
+  --gold-dim:     #5c4720;
+
+  /* Status */
+  --green:        #4e9e6a;
+  --green-light:  #6abf86;
+  --red:          #c0392b;
+  --red-light:    #e05040;
+  --blue:         #4a8fa8;
+  --blue-light:   #6db8d4;
+
+  /* Nav */
+  --nav-width:    220px;
+  --header-h:     56px;
+
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: inherit; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* Utility */
+.mono { font-family: 'DM Mono', monospace; }
+.gold { color: var(--gold); }
+.muted { color: var(--text-muted); }
