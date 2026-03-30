@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rocking Z Acres | Poultry Investor Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
+  <style>
+    body { background: #f8fafc; }
+    .card { background: white; border-radius: 0.9rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .input { border: 1px solid #cbd5e1; border-radius: .5rem; padding: .35rem .55rem; width: 100%; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, LineChart, Line, CartesianGrid
+} = Recharts;
+
+const sourced = "Sourced";
+const estimated = "Estimated";
+
+const initial = {
+  annualBirdOptions: [500, 1000, 1500, 2000],
+  processingScenarios: { low: 4.5, base: 6.5, high: 8.5 },
+  pricingScenarios: { conservative: 30, base: 34, aggressive: 38 },
+  selectedBirds: 1000,
+  selectedPrice: 34,
+  selectedProc: 6.5,
+  mortalityPct: 7,
+  carcassLbs: 4.0,
+
+  // Per-bird economics (editable)
+  chick: 2.25,
+  feedPurchased: 12.0,
+  ownFeedDiscountPct: 18,
+  brooder: 1.0,
+  bedding: 0.5,
+  pastureInfra: 1.2,
+  coopDepr: 1.5,
+  utilitiesFuel: 0.8,
+  labor: 5.0,
+  packaging: 1.25,
+  freezer: 1.0,
+  shipMaterialsPerOrder: 14,
+  birdsPerOrder: 4,
+  merchantPct: 3.2,
+  merchantFix: 0.30,
+  websitePerBird: 0.8,
+  marketingCACPerBird: 3.0,
+
+  fixedOverheadByScale: { 500: 14000, 1000: 20000, 1500: 26000, 2000: 32000 },
+
+  breed: "Freedom Ranger"
+};
+
+const assumptionsMeta = {
+  mortalityPct: estimated,
+  carcassLbs: estimated,
+  chick: estimated,
+  feedPurchased: estimated,
+  ownFeedDiscountPct: estimated,
+  brooder: estimated,
+  bedding: estimated,
+  pastureInfra: estimated,
+  coopDepr: estimated,
+  utilitiesFuel: estimated,
+  labor: estimated,
+  packaging: estimated,
+  freezer: estimated,
+  shipMaterialsPerOrder: estimated,
+  birdsPerOrder: estimated,
+  merchantPct: estimated,
+  merchantFix: estimated,
+  websitePerBird: estimated,
+  marketingCACPerBird: estimated,
+  selectedProc: estimated,
+  selectedPrice: estimated
+};
+
+function money(n){ return `$${n.toLocaleString(undefined,{maximumFractionDigits:2})}`; }
+function pct(n){ return `${n.toFixed(1)}%`; }
+
+function calcModel(a, useOwnFeed=false){
+  const sold = Math.round(a.selectedBirds * (1 - a.mortalityPct/100));
+  const feed = useOwnFeed ? a.feedPurchased * (1 - a.ownFeedDiscountPct/100) : a.feedPurchased;
+  const shipMatPerBird = a.shipMaterialsPerOrder / Math.max(1, a.birdsPerOrder);
+  const merchant = (a.selectedPrice * (a.merchantPct/100)) + a.merchantFix/Math.max(1,a.birdsPerOrder);
+
+  const variablePerBird =
+    a.chick + feed + a.brooder + a.bedding + a.pastureInfra + a.coopDepr + a.utilitiesFuel +
+    a.labor + a.selectedProc + a.packaging + a.freezer + shipMatPerBird + merchant +
+    a.websitePerBird + a.marketingCACPerBird;
+
+  const revenue = sold * a.selectedPrice;
+  const cogs = sold * variablePerBird;
+  const grossProfit = revenue - cogs;
+  const grossMargin = revenue === 0 ? 0 : (grossProfit/revenue)*100;
+
+  const fixed = a.fixedOverheadByScale[a.selectedBirds] || 0;
+  const opProfit = grossProfit - fixed;
+  const cmPerBird = a.selectedPrice - variablePerBird;
+  const breakEvenBirds = cmPerBird > 0 ? Math.ceil(fixed / cmPerBird) : Infinity;
+  const breakEvenPriceBird = variablePerBird + fixed / Math.max(1,sold);
+  const breakEvenPriceLb = breakEvenPriceBird / Math.max(0.1,a.carcassLbs);
+
+  return {
+    sold, feed, variablePerBird, revenue, cogs, grossProfit, grossMargin,
+    opProfit, cmPerBird, breakEvenBirds, breakEvenPriceBird, breakEvenPriceLb
+  };
+}
+
+function scenarioTable(a){
+  const rows=[];
+  const procKeys=["low","base","high"];
+  const priceKeys=["conservative","base","aggressive"];
+  for (const b of a.annualBirdOptions){
+    for (const pk of priceKeys){
+      for (const ck of procKeys){
+        const temp={...a, selectedBirds:b, selectedPrice:a.pricingScenarios[pk], selectedProc:a.processingScenarios[ck]};
+        const m=calcModel(temp,false);
+        rows.push({
+          birds:b, priceTier:pk, procTier:ck,
+          revenue:m.revenue, cogs:m.cogs, gross:m.grossProfit,
+          gm:m.grossMargin, op:m.opProfit, beBirds:m.breakEvenBirds,
+          bePrice:m.breakEvenPriceBird, beLb:m.breakEvenPriceLb
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+function App(){
+  const [a,setA]=React.useState(initial);
+
+  const base=calcModel(a,false);
+  const own=calcModel(a,true);
+  const scenarios=scenarioTable(a);
+
+  const chartRevenue=a.annualBirdOptions.map(b=>{
+    const temp={...a, selectedBirds:b};
+    const m=calcModel(temp,false);
+    return {birds:b, revenue:m.revenue, gross:m.grossProfit, op:m.opProfit};
+  });
+
+  const priceSensitivity=[28,30,32,34,36,38,40].map(p=>{
+    const m=calcModel({...a,selectedPrice:p},false);
+    return {price:p, op:m.opProfit, gm:m.grossMargin};
+  });
+
+  const costRows=[
+    ["Chick",a.chick,estimated],
+    ["Feed (purchased organic)",a.feedPurchased,estimated],
+    ["Feed (own organic grains path)",own.feed,estimated],
+    ["Brooder",a.brooder,estimated],
+    ["Bedding/Litter",a.bedding,estimated],
+    ["Pasture infrastructure",a.pastureInfra,estimated],
+    ["Coop depreciation",a.coopDepr,estimated],
+    ["Water/electric/fuel",a.utilitiesFuel,estimated],
+    ["Labor",a.labor,estimated],
+    ["Processing",a.selectedProc,estimated],
+    ["Packaging",a.packaging,estimated],
+    ["Freezer storage",a.freezer,estimated],
+    ["Shipping materials per bird",a.shipMaterialsPerOrder/Math.max(1,a.birdsPerOrder),estimated],
+    ["Merchant fees per bird",(a.selectedPrice*a.merchantPct/100)+a.merchantFix/Math.max(1,a.birdsPerOrder),"Formula"],
+    ["Website/software",a.websitePerBird,estimated],
+    ["Marketing/CAC",a.marketingCACPerBird,estimated],
+  ];
+
+  const update=(k,v)=>setA(s=>({...s,[k]:Number(v)}));
+
+  return (
+    <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
+      <header className="card p-5">
+        <h1 className="text-2xl font-bold text-slate-800">Rocking Z Acres — Organic Pasture Poultry Investor Dashboard</h1>
+        <p className="text-slate-600 mt-2">USDA-inspected interstate frozen DTC model, Wessington-area South Dakota.</p>
+      </header>
+
+      <section className="grid md:grid-cols-4 gap-4">
+        {[ ["Revenue",base.revenue],["Gross Margin",`${base.grossMargin.toFixed(1)}%`],["Contribution / Bird",base.cmPerBird],["Operating Profit",base.opProfit] ].map((k,i)=>(
+          <div key={i} className="card p-4">
+            <div className="text-xs uppercase text-slate-500">{k[0]}</div>
+            <div className="text-xl font-semibold text-slate-800 mt-1">{typeof k[1]==='number'?money(k[1]):k[1]}</div>
+          </div>
+        ))}
+      </section>
+
+      <section className="grid lg:grid-cols-3 gap-4">
+        <div className="card p-4 lg:col-span-1">
+          <h2 className="font-semibold text-slate-800 mb-3">Editable Assumptions</h2>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            {[
+              ["selectedBirds","Annual birds placed"],["selectedPrice","Price per bird ($)"],["selectedProc","Processing ($/bird)"],
+              ["mortalityPct","Mortality (%)"],["carcassLbs","Avg carcass lbs"],["chick","Chick ($/bird)"],["feedPurchased","Feed purchased ($/bird)"],
+              ["ownFeedDiscountPct","Own-feed discount (%)"],["labor","Labor ($/bird)"],["shipMaterialsPerOrder","Ship materials ($/order)"],
+              ["birdsPerOrder","Birds per order"],["marketingCACPerBird","Marketing CAC ($/bird)"]
+            ].map(([k,label])=>(<label key={k} className="col-span-1">{label}
+              <input className="input mt-1" type="number" step="0.1" value={a[k]} onChange={e=>update(k,e.target.value)} />
+            </label>))}
+          </div>
+          <p className="text-xs text-slate-500 mt-3">All assumptions recalculate automatically.</p>
+        </div>
+
+        <div className="card p-4 lg:col-span-2">
+          <h2 className="font-semibold text-slate-800 mb-3">Executive Summary Panel</h2>
+          <ul className="list-disc ml-5 text-sm text-slate-700 space-y-1">
+            <li>Recommended launch: 1,000 birds/year in 4 batches of 250.</li>
+            <li>Whole-bird frozen DTC first; regional shipping before nationwide.</li>
+            <li>Preferred brand breed: slower-growing Freedom Ranger-type.</li>
+            <li>Economics improve when average order size is 3+ birds and own organic grain feed path is executed well.</li>
+            <li>Break-even price at current assumptions: <b>{money(base.breakEvenPriceBird)}</b> per bird ({money(base.breakEvenPriceLb)}/lb).</li>
+          </ul>
+        </div>
+      </section>
+
+      <section className="grid lg:grid-cols-2 gap-4">
+        <div className="card p-4">
+          <h3 className="font-semibold mb-2">Revenue, Gross, Operating Profit by Scale</h3>
+          <div style={{height:280}}>
+            <ResponsiveContainer>
+              <BarChart data={chartRevenue}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="birds" />
+                <YAxis />
+                <Tooltip formatter={(v)=>money(v)} />
+                <Legend />
+                <Bar dataKey="revenue" fill="#0ea5e9" />
+                <Bar dataKey="gross" fill="#22c55e" />
+                <Bar dataKey="op" fill="#f97316" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="card p-4">
+          <h3 className="font-semibold mb-2">Price Sensitivity</h3>
+          <div style={{height:280}}>
+            <ResponsiveContainer>
+              <LineChart data={priceSensitivity}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="price" />
+                <YAxis />
+                <Tooltip formatter={(v)=>money(v)} />
+                <Legend />
+                <Line type="monotone" dataKey="op" stroke="#7c3aed" strokeWidth={2} name="Operating Profit" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </section>
+
+      <section className="card p-4">
+        <h3 className="font-semibold mb-2">Per-Bird Cost Table (Base)</h3>
+        <table className="w-full text-sm">
+          <thead><tr className="text-left border-b"><th>Cost item</th><th className="text-right">$/bird</th><th className="text-right">Source type</th></tr></thead>
+          <tbody>
+            {costRows.map((r,i)=><tr key={i} className="border-b"><td>{r[0]}</td><td className="text-right">{money(r[1])}</td><td className="text-right">{r[2]}</td></tr>)}
+            <tr className="font-semibold"><td>Total landed cost/bird</td><td className="text-right">{money(base.variablePerBird)}</td><td className="text-right">Calculated</td></tr>
+            <tr className="font-semibold"><td>Total cost/lb</td><td className="text-right">{money(base.variablePerBird/a.carcassLbs)}</td><td className="text-right">Calculated</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section className="grid lg:grid-cols-2 gap-4">
+        <div className="card p-4">
+          <h3 className="font-semibold mb-2">Breed Comparison</h3>
+          <table className="w-full text-sm">
+            <thead><tr className="border-b text-left"><th>Metric</th><th>Cornish Cross</th><th>Freedom Ranger</th></tr></thead>
+            <tbody>
+              <tr className="border-b"><td>Grow-out</td><td>7–9 weeks</td><td>10–12+ weeks</td></tr>
+              <tr className="border-b"><td>Feed efficiency</td><td>Higher</td><td>Lower</td></tr>
+              <tr className="border-b"><td>Pasture mobility</td><td>Moderate</td><td>Better</td></tr>
+              <tr className="border-b"><td>Brand fit</td><td>Commodity-plus</td><td>Premium pasture story</td></tr>
+              <tr><td>Recommendation</td><td colSpan="2"><b>Start Freedom Ranger-type for differentiation; validate with pilot side-by-side test.</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="card p-4">
+          <h3 className="font-semibold mb-2">Acreage & Rotation Planner</h3>
+          <table className="w-full text-sm">
+            <thead><tr className="border-b text-left"><th>Birds/year</th><th>Acres target</th><th>Comments</th></tr></thead>
+            <tbody>
+              <tr className="border-b"><td>500</td><td>3–5</td><td>Entry scale</td></tr>
+              <tr className="border-b"><td>1,000</td><td>6–10</td><td>Recommended launch</td></tr>
+              <tr className="border-b"><td>1,500</td><td>9–15</td><td>Add more rest paddocks</td></tr>
+              <tr><td>2,000</td><td>12–20</td><td>Higher drought-risk buffer needed</td></tr>
+            </tbody>
+          </table>
+          <div className="mt-3 text-sm">Batch planner recommendation: <b>4 batches of 250</b> (Year 1), daily move pens, seasonal processing blocks.</div>
+        </div>
+      </section>
+
+      <section className="card p-4 overflow-auto">
+        <h3 className="font-semibold mb-2">Scenario Comparison Table (Birds x Price x Processing)</h3>
+        <table className="w-full text-xs min-w-[980px]">
+          <thead><tr className="border-b text-left"><th>Birds</th><th>Price tier</th><th>Proc tier</th><th className="text-right">Revenue</th><th className="text-right">COGS</th><th className="text-right">Gross</th><th className="text-right">GM%</th><th className="text-right">Op P/L</th><th className="text-right">BE birds</th><th className="text-right">BE $/bird</th><th className="text-right">BE $/lb</th></tr></thead>
+          <tbody>
+            {scenarios.map((r,i)=>(<tr key={i} className="border-b">
+              <td>{r.birds}</td><td>{r.priceTier}</td><td>{r.procTier}</td>
+              <td className="text-right">{money(r.revenue)}</td><td className="text-right">{money(r.cogs)}</td>
+              <td className="text-right">{money(r.gross)}</td><td className="text-right">{pct(r.gm)}</td>
+              <td className="text-right">{money(r.op)}</td><td className="text-right">{Number.isFinite(r.beBirds)?r.beBirds:'∞'}</td>
+              <td className="text-right">{money(r.bePrice)}</td><td className="text-right">{money(r.beLb)}</td>
+            </tr>))}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="card p-4">
+        <h3 className="font-semibold mb-2">Output Recommendations</h3>
+        <ul className="list-disc ml-5 text-sm space-y-1">
+          <li>Optimal breed: <b>Freedom Ranger-type</b>.</li>
+          <li>Optimal start: <b>1,000 birds/year</b>, <b>250/batch</b>.</li>
+          <li>Optimal acreage: <b>6–10 managed acres</b> for launch.</li>
+          <li>Start with <b>whole birds only</b>; delay cuts until operational KPIs are stable.</li>
+          <li>Own certified organic grain can improve feed economics materially if formula/milling compliance is well executed.</li>
+          <li>Business viability depends on premium pricing + bundle shipping + CAC discipline.</li>
+        </ul>
+      </section>
+
+      <section className="card p-4">
+        <h3 className="font-semibold mb-2">Sources and Regulatory Notes</h3>
+        <ol className="list-decimal ml-5 text-sm space-y-1 text-slate-700">
+          <li><a className="text-blue-700" href="https://www.ecfr.gov/current/title-7/subtitle-B/chapter-I/subchapter-M/part-205/subpart-C" target="_blank">7 CFR Part 205 Subpart C (Organic)</a> — sourced regulatory.</li>
+          <li><a className="text-blue-700" href="https://www.law.cornell.edu/cfr/text/7/205.603" target="_blank">7 CFR §205.603 (methionine allowance reference)</a> — sourced regulatory.</li>
+          <li><a className="text-blue-700" href="https://www.fsis.usda.gov/guidelines/2024-0006" target="_blank">FSIS Animal Raising Claims Guideline</a> — sourced labeling framework.</li>
+          <li><a className="text-blue-700" href="https://www.ncei.noaa.gov/access/services/data/v1?dataset=normals-monthly-1991-2020&endDate=9996-12-31&format=pdf&startDate=0001-01-01&stations=USW00014936" target="_blank">NOAA Huron station normals</a> — sourced climate context.</li>
+          <li><a className="text-blue-700" href="https://efotg.sc.egov.usda.gov/references/Public/SD/G055CY003SD-SHALLOW.pdf" target="_blank">NRCS SD forage/climate notes</a> — sourced forage adaptation context.</li>
+          <li><a className="text-blue-700" href="https://www.ams.usda.gov/mnreports/lsbnof.pdf" target="_blank">USDA AMS Organic Grain & Feedstuffs report</a> — sourced market context.</li>
+        </ol>
+        <p className="text-xs text-slate-500 mt-3">Values marked Estimated are editable business assumptions intended for challenge-testing.</p>
+      </section>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
